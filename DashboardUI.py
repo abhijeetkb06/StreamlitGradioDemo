@@ -1,6 +1,6 @@
 import streamlit as st
 
-# 1. Set page config FIRST
+# -- IMPORTANT: set_page_config must be called before ANY other Streamlit commands --
 st.set_page_config(page_title="AI Medical Bill Recovery Agent", layout="wide")
 
 import pandas as pd
@@ -96,8 +96,8 @@ else:
 # --- Trigger All Button ---
 if st.button("🚀 Trigger All Actions"):
     for i in df.index:
-        df.at[i, 'Status'] = '✅ Triggered'
-    st.success("All actions marked as triggered. Sending emails asynchronously...")
+        df.at[i, 'Status'] = '📧 Email Sent'
+    st.success("All actions marked as Email Sent. Sending emails asynchronously...")
 
     # Asynchronous bulk email sending
     def send_bulk_emails():
@@ -147,17 +147,17 @@ for _, row in view_df.iterrows():
     col5.write(row['Recommended Action'])
 
     current_status = df.at[actual_index, 'Status']
-    if current_status == '✅ Triggered':
+    if current_status == '📧 Email Sent':
         col6.success(current_status)
     else:
         col6.write(current_status)
 
     if col7.button("Trigger", key=f"trigger_{actual_index}"):
         # Update DataFrame status immediately
-        df.at[actual_index, 'Status'] = '✅ Triggered'
+        df.at[actual_index, 'Status'] = '📧 Email Sent'
         st.toast(f"Action triggered for {row['Name']}", icon="✅")
 
-        # Force a page reload so status updates right away (no waiting)
+        # Rerun so the updated status is visible right away
         st.rerun()
 
         # Asynchronously send this single email
@@ -216,5 +216,4 @@ with colB:
     ax2.set_title("Recommended Actions")
     st.pyplot(fig2)
 
-# Optional style enhancements
 style_metric_cards()
