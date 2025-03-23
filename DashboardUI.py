@@ -1,6 +1,6 @@
 import streamlit as st
 
-# -- IMPORTANT: set_page_config must be called before ANY other Streamlit commands --
+# Must be the first Streamlit command
 st.set_page_config(page_title="AI Medical Bill Recovery Agent", layout="wide")
 
 import pandas as pd
@@ -12,7 +12,7 @@ import threading
 from email.mime.text import MIMEText
 from streamlit_extras.metric_cards import style_metric_cards
 
-# --- Email sending utility ---
+# --- Email utility ---
 def send_email(subject, body, to_email):
     sender_email = "demodb.notify@gmail.com"  # Replace with your Gmail
     app_password = "ynwjwhawgpzwoyhz"         # Replace with your App Password
@@ -26,8 +26,10 @@ def send_email(subject, body, to_email):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(sender_email, app_password)
             server.sendmail(sender_email, to_email, msg.as_string())
+        return True
     except Exception as e:
         st.error(f"Failed to send email to {to_email}: {e}")
+        return False
 
 # --- Generate Mock Patient Data ---
 def generate_mock_data():
@@ -36,19 +38,17 @@ def generate_mock_data():
         'Ethan Zhang', 'Olivia Brown', 'Liam Wilson', 'Emma Davis', 'Noah Patel'
     ]
     data = []
-    for name in names:
+    for i, name in enumerate(names):
         score = random.randint(25, 95)
         balance_due = random.randint(300, 2000)
         due_date = datetime.date.today() - datetime.timedelta(days=random.randint(1, 30))
         late_fee = int(balance_due * 0.05)
-        action = (
-            "Send Reminder" if score >= 80 else
-            "Offer Payment Plan" if score >= 50 else
-            "Escalate"
-        )
+        action = ("Send Reminder" if score >= 80 else
+                  "Offer Payment Plan" if score >= 50 else
+                  "Escalate")
         data.append({
+            'RowID': i,  # Unique ID for each row
             'Name': name,
-            'Email': 'abhijeetkb@gmail.com',  # Hardcoded for testing
             'Balance Due': balance_due,
             'Due Date': due_date.strftime('%Y-%m-%d'),
             'Late Fee': late_fee,
@@ -58,11 +58,14 @@ def generate_mock_data():
         })
     return pd.DataFrame(data)
 
-# --- Session State Initialization ---
+# --- Session State ---
 if "df" not in st.session_state:
     st.session_state.df = generate_mock_data()
 
-# --- Color coding function ---
+if "filter_choice" not in st.session_state:
+    st.session_state.filter_choice = "All"
+
+# --- color coding ---
 def color_score(score):
     if score >= 80:
         return "green"
@@ -71,72 +74,91 @@ def color_score(score):
     else:
         return "red"
 
-# --- Sidebar Filters ---
+# --- Sidebar Filter ---
 st.sidebar.title("🔍 Filter Options")
-filter_option = st.sidebar.selectbox(
+choice = st.sidebar.selectbox(
     "Filter by Payment Likelihood",
-    ["All", "High (80-100%)", "Medium (50-79%)", "Low (<50%)"]
+    ["All", "High (80-100%)", "Medium (50-79%)", "Low (<50%)"],
+    index=["All","High (80-100%)","Medium (50-79%)","Low (<50%)"].index(st.session_state.filter_choice)
 )
+if choice != st.session_state.filter_choice:
+    st.session_state.filter_choice = choice
 
-# --- Main Title ---
+# --- Title ---
 st.title("💰 AI Medical Bill Recovery Agent")
 st.caption("AI-powered insights for prioritizing and recovering unpaid healthcare accounts.")
 
-# --- Filtered Data ---
+# Quick references
 df = st.session_state.df
-if filter_option == "High (80-100%)":
+
+# --- Trigger All ---
+if st.button("🚀 Trigger All Actions"):
+    for i in df.index:
+        df.at[i, 'Status'] = '📧 Email Sent'
+    st.success("All actions now marked as Email Sent. Sending bulk emails asynchronously...")
+
+    def send_bulk_emails():
+        for i in df.index:
+            row = df.loc[i]
+            subj = f"[BULK] Notification"
+            body = f"""
+            Dear {row['Name']},
+
+            This is a reminder that your account has an outstanding balance of ${row['Balance Due']}, 
+            which was due on {row['Due Date']}.
+            A late fee of ${row['Late Fee']} has been applied.
+
+            Recommended Action: {row['Recommended Action']}
+            """
+            send_email(subj, body, "abhijeetkb@gmail.com")
+
+    threading.Thread(target=send_bulk_emails).start()
+
+# --- Filter data ---
+if st.session_state.filter_choice == "High (80-100%)":
     view_df = df[df["Payment Score"] >= 80]
-elif filter_option == "Medium (50-79%)":
+elif st.session_state.filter_choice == "Medium (50-79%)":
     view_df = df[(df["Payment Score"] >= 50) & (df["Payment Score"] < 80)]
-elif filter_option == "Low (<50%)":
+elif st.session_state.filter_choice == "Low (<50%)":
     view_df = df[df["Payment Score"] < 50]
 else:
     view_df = df
 
-# --- Trigger All Button ---
-if st.button("🚀 Trigger All Actions"):
-    for i in df.index:
-        df.at[i, 'Status'] = '📧 Email Sent'
-    st.success("All actions marked as Email Sent. Sending emails asynchronously...")
-
-    # Asynchronous bulk email sending
-    def send_bulk_emails():
-        for i in df.index:
-            name = df.at[i, 'Name']
-            balance = df.at[i, 'Balance Due']
-            due = df.at[i, 'Due Date']
-            fee = df.at[i, 'Late Fee']
-            action = df.at[i, 'Recommended Action']
-
-            email_body = f"""
-            Dear {name},
-
-            This is a reminder that your account has an outstanding balance of ${balance}, which was due on {due}.
-            A late fee of ${fee} has been applied.
-
-            Recommended Action: {action}
-
-            Please log in to your account to complete the payment or set up a payment plan.
-
-            Thank you,
-            Revenue Recovery Team
-            """
-            send_email(
-                subject="[Action Required] Outstanding Balance Notification",
-                body=email_body,
-                to_email=df.at[i, 'Email']
-            )
-
-    threading.Thread(target=send_bulk_emails).start()
-
 # --- Table ---
 st.subheader("📋 Unpaid Accounts")
 
-for _, row in view_df.iterrows():
-    # Find the actual index in the original df
-    actual_index = df[df["Name"] == row["Name"]].index[0]
+for i, row in view_df.iterrows():
+    row_key = row['RowID']
+    col1, col2, col3, col4, col5, col6, col7 = st.columns([2,1,2,2,2,2,1.5])
 
-    col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1, 2, 2, 2, 2, 1.5])
+    # 1) Check if user triggered email for this row
+    #    If so, update the DataFrame row BEFORE showing status
+    button_key = f"trigger_button_{row_key}"
+    if col7.button("Trigger", key=button_key):
+        # Update the row's status in memory
+        df.at[i, 'Status'] = '📧 Email Sent'
+        st.toast(f"Email sent to {row['Name']}", icon="✅")
+
+        def send_individual_email():
+            suffix = random.randint(1000,9999)
+            subject_line = f"[INDIVIDUAL_{suffix}] Payment Notice"
+            body = f"""
+            Dear {row['Name']},
+
+            This is a reminder that your account has an outstanding balance of ${row['Balance Due']}, 
+            which was due on {row['Due Date']}.
+            A late fee of ${row['Late Fee']} has been applied.
+
+            Recommended Action: {row['Recommended Action']}
+            """
+            send_email(subject_line, body, "abhijeetkb@gmail.com")
+
+        threading.Thread(target=send_individual_email).start()
+
+    # 2) Now read the updated row from the DataFrame
+    updated_status = df.at[i, 'Status']
+
+    # 3) Show the row
     col1.write(f"**{row['Name']}**")
     col2.write(f"${row['Balance Due']}")
     col3.write(row['Due Date'])
@@ -146,70 +168,28 @@ for _, row in view_df.iterrows():
     )
     col5.write(row['Recommended Action'])
 
-    current_status = df.at[actual_index, 'Status']
-    if current_status == '📧 Email Sent':
-        col6.success(current_status)
+    if updated_status == '📧 Email Sent':
+        col6.success(updated_status)
     else:
-        col6.write(current_status)
+        col6.write(updated_status)
 
-    if col7.button("Trigger", key=f"trigger_{actual_index}"):
-        # Update DataFrame status immediately
-        df.at[actual_index, 'Status'] = '📧 Email Sent'
-        st.toast(f"Action triggered for {row['Name']}", icon="✅")
-
-        # Rerun so the updated status is visible right away
-        st.rerun()
-
-        # Asynchronously send this single email
-        def send_individual_email(name, balance, due, fee, action, email):
-            body = f"""
-            Dear {name},
-
-            This is a reminder that your account has an outstanding balance of ${balance}, which was due on {due}.
-            A late fee of ${fee} has been applied.
-
-            Recommended Action: {action}
-
-            Please log in to your account to complete the payment or set up a payment plan.
-
-            Thank you,
-            Revenue Recovery Team
-            """
-            send_email(
-                subject="[Action Required] Outstanding Balance Notification",
-                body=body,
-                to_email=email
-            )
-
-        threading.Thread(
-            target=send_individual_email,
-            args=(
-                row['Name'],
-                row['Balance Due'],
-                row['Due Date'],
-                row['Late Fee'],
-                row['Recommended Action'],
-                row['Email']
-            )
-        ).start()
-
-# --- Visualizations ---
+# --- Visualization ---
 st.subheader("📊 Payment Score Insights")
-colA, colB = st.columns(2)
+cA, cB = st.columns(2)
 
-with colA:
-    fig1, ax1 = plt.subplots(figsize=(5, 3))
-    score_bins = [0, 50, 80, 100]
-    labels = ['Low (<50%)', 'Medium (50-79%)', 'High (80-100%)']
-    df['Score Range'] = pd.cut(df['Payment Score'], bins=score_bins, labels=labels, include_lowest=True)
-    score_counts = df['Score Range'].value_counts().reindex(labels)
-    ax1.bar(score_counts.index, score_counts.values, color=['red', 'orange', 'green'])
+with cA:
+    fig1, ax1 = plt.subplots(figsize=(5,3))
+    bins = [0,50,80,100]
+    labs = ['Low (<50%)','Medium (50-79%)','High (80-100%)']
+    df['Score Range'] = pd.cut(df['Payment Score'], bins=bins, labels=labs, include_lowest=True)
+    score_counts = df['Score Range'].value_counts().reindex(labs)
+    ax1.bar(score_counts.index, score_counts.values, color=['red','orange','green'])
     ax1.set_ylabel("# of Accounts")
     ax1.set_title("Accounts by Payment Score")
     st.pyplot(fig1)
 
-with colB:
-    fig2, ax2 = plt.subplots(figsize=(5, 3))
+with cB:
+    fig2, ax2 = plt.subplots(figsize=(5,3))
     action_counts = df['Recommended Action'].value_counts()
     ax2.pie(action_counts, labels=action_counts.index, autopct='%1.1f%%', startangle=90)
     ax2.axis('equal')
