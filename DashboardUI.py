@@ -10,12 +10,12 @@ import matplotlib.pyplot as plt
 import smtplib
 import threading
 from email.mime.text import MIMEText
-from streamlit_extras.metric_cards import style_metric_cards
+#from streamlit_extras.metric_cards import style_metric_cards
 
 # --- Email utility ---
 def send_email(subject, body, to_email):
     sender_email = "demodb.notify@gmail.com"  # Replace with your Gmail
-    app_password = "ynwjwhawgpzwoyhz"         # Replace with your App Password
+    app_password = "ynw"         # Replace with your App Password
 
     msg = MIMEText(body)
     msg["Subject"] = subject
@@ -196,4 +196,4 @@ with cB:
     ax2.set_title("Recommended Actions")
     st.pyplot(fig2)
 
-style_metric_cards()
+#style_metric_cards()
